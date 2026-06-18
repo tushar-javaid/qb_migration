@@ -9,12 +9,41 @@ class CustomerImporter(BaseImporter):
     json_file = "customers.json"
     json_key = "customers"
 
+    def resolve_customer_group(self, qb_group_name):
+        if not qb_group_name:
+            return "All Customers"
+
+        # Find the group node
+        group = frappe.db.get_value("Customer Group", {"customer_group_name": qb_group_name}, "name")
+
+        # Check if it is a group
+        if group and frappe.db.get_value("Customer Group", group, "is_group"):
+            # If it is a group, find or create a leaf node under it
+            leaf_name = f"{qb_group_name} - Leaf"
+            existing_leaf = frappe.db.get_value("Customer Group", {"customer_group_name": leaf_name}, "name")
+            if existing_leaf:
+                return existing_leaf
+
+            # Create leaf
+            new_leaf = frappe.get_doc({
+                "doctype": "Customer Group",
+                "customer_group_name": leaf_name,
+                "parent_customer_group": qb_group_name,
+                "is_group": 0
+            })
+            new_leaf.flags.ignore_permissions = True
+            new_leaf.insert()
+            frappe.db.commit()
+            return new_leaf.name
+
+        return group or "All Customers"
+
     def map_record(self, record):
         doc = {
             "doctype": "Customer",
             "customer_name": record["name"],
             "customer_type": "Company" if record.get("is_company") else "Individual",
-            "customer_group": "All Customer Groups",
+            "customer_group": self.resolve_customer_group(record.get("customer_group")),
             "territory": "All Territories",
         }
 

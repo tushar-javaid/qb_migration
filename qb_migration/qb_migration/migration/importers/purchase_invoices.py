@@ -89,10 +89,40 @@ class PurchaseInvoiceImporter(BaseImporter):
             )
         return None
 
+    def resolve_payable_account(self, supplier, currency):
+        company = frappe.defaults.get_global_default("company")
+
+        # Try to find an account for this supplier with the given currency
+        # This is a simplification and assumes such accounts exist or can be resolved.
+        # Ideally, we should check for "Payable - [Currency]"
+
+        account_name = f"Creditors - T - {currency}"
+
+        account = frappe.db.get_value(
+            "Account",
+            {"account_name": account_name, "company": company, "account_currency": currency},
+            "name"
+        )
+
+        if not account:
+            # Fallback or logic to create the account if needed
+            # For now, try to find *any* account with this currency if the specific one doesn't exist
+            account = frappe.db.get_value(
+                "Account",
+                {"company": company, "account_currency": currency, "account_type": "Payable"},
+                "name"
+            )
+
+        if not account:
+            raise ValueError(f"Could not resolve payable account for currency {currency} and company {company}")
+
+        return account
+
     def map_record(self, record):
         company = frappe.defaults.get_global_default("company")
         supplier_name = record.get("vendor") or record.get("vend_name")
         supplier = self.resolve_supplier(supplier_name)
+        currency = record.get("currency") or "PKR" # Fallback to company currency if missing
 
         items = []
         for line in record.get("lines", []):
@@ -114,7 +144,8 @@ class PurchaseInvoiceImporter(BaseImporter):
             "bill_no": record.get("ref_no", ""),
             "bill_date": self.normalize_date(record.get("date") or record.get("txn_date")),
             "company": company,
-            "currency": record.get("currency", "USD"),
+            "currency": currency,
+            "debit_to": self.resolve_payable_account(supplier, currency),
             "items": items,
             "is_return": record.get("is_credit", False),
         }
