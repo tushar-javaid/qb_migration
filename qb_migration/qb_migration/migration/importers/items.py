@@ -17,6 +17,54 @@ class ItemImporter(BaseImporter):
     json_file = "items.json"
     json_key = "items"
 
+    # Cache for the safe leaf group
+    _safe_leaf_group = None
+
+    def _assert_leaf_item_group(self, group_name):
+        is_group = frappe.db.get_value("Item Group", group_name, "is_group")
+        if int(is_group or 0) != 0:
+            raise ValueError(
+                f"Resolved Item Group must be non-group/leaf, got group node: {group_name}"
+            )
+        return group_name
+
+    def _get_root_item_group(self):
+        root = frappe.db.get_value(
+            "Item Group",
+            {"is_group": 1, "parent_item_group": ["is", "not set"]},
+            "name",
+        )
+        return root or "All Item Groups"
+
+    def _get_or_create_safe_leaf_group(self):
+        if self._safe_leaf_group:
+            return self._safe_leaf_group
+
+        root = self._get_root_item_group()
+        leaf_name = "QuickBooks Items"
+
+        leaf = frappe.db.get_value(
+            "Item Group",
+            {"item_group_name": leaf_name, "parent_item_group": root},
+            "name",
+        )
+        if leaf:
+            self._safe_leaf_group = self._assert_leaf_item_group(leaf)
+            return self._safe_leaf_group
+
+        leaf_doc = frappe.get_doc(
+            {
+                "doctype": "Item Group",
+                "item_group_name": leaf_name,
+                "parent_item_group": root,
+                "is_group": 0,
+            }
+        )
+        leaf_doc.flags.ignore_permissions = True
+        leaf_doc.insert()
+        self._safe_leaf_group = self._assert_leaf_item_group(leaf_doc.name)
+        return self._safe_leaf_group
+
     def resolve_account(self, qb_name):
         if not qb_name:
             return None
@@ -32,32 +80,42 @@ class ItemImporter(BaseImporter):
 
     def resolve_item_group(self, item_group_name):
         if not item_group_name:
-            return "All Item Groups"
+            return self._assert_leaf_item_group(self._get_or_create_safe_leaf_group())
 
         item_group_name = item_group_name.strip()
-        existing = frappe.db.get_value(
+        group = frappe.db.get_value(
             "Item Group", {"item_group_name": item_group_name}, "name"
         )
-        if existing:
-            return existing
+        if group:
+            # Check if it is a leaf
+            is_group = frappe.db.get_value("Item Group", group, "is_group")
+            if not is_group:
+                return self._assert_leaf_item_group(group)
 
-        fallback = frappe.db.sql(
-            "select name from `tabItem Group` where lower(item_group_name)=lower(%s) limit 1",
-            item_group_name,
-        )
-        if fallback:
-            return fallback[0][0]
+            # If it's a group, create a leaf under it
+            leaf_name = f"{item_group_name} - Items"
+            leaf = frappe.db.get_value(
+                "Item Group",
+                {"item_group_name": leaf_name, "parent_item_group": group},
+                "name",
+            )
+            if leaf:
+                return self._assert_leaf_item_group(leaf)
 
-        doc = frappe.get_doc({
-            "doctype": "Item Group",
-            "item_group_name": item_group_name,
-            "parent_item_group": "All Item Groups",
-            "is_group": 0,
-        })
-        doc.flags.ignore_permissions = True
-        doc.insert()
-        frappe.db.commit()
-        return doc.name
+            leaf_doc = frappe.get_doc(
+                {
+                    "doctype": "Item Group",
+                    "item_group_name": leaf_name,
+                    "parent_item_group": group,
+                    "is_group": 0,
+                }
+            )
+            leaf_doc.flags.ignore_permissions = True
+            leaf_doc.insert()
+            return self._assert_leaf_item_group(leaf_doc.name)
+
+        # Group not found, fall back to safe leaf
+        return self._assert_leaf_item_group(self._get_or_create_safe_leaf_group())
 
     def map_record(self, record):
         item_type = QB_ITEM_TYPE_MAP.get(record.get("item_type", "SVC"), "Service Item")
