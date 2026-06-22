@@ -108,11 +108,6 @@ class JournalEntryImporter(BaseImporter):
         currency = record.get("currency")
         exchange_rate = record.get("exchange_rate")
 
-        # Determine if multi-currency processing is needed
-        # Logic:
-        # 1. If currency is absent or matches company currency, treat as single-currency (normal).
-        # 2. Otherwise (foreign currency), treat as multi-currency IF exchange rate exists.
-
         is_foreign_currency = bool(currency and currency != company_currency)
         is_multi_currency = is_foreign_currency and bool(exchange_rate)
 
@@ -122,12 +117,11 @@ class JournalEntryImporter(BaseImporter):
             if not erpnext_account:
                 raise ValueError(f"Account not found: {acct_name}")
 
+            # Get the actual currency of this account
+            account_currency = frappe.db.get_value("Account", erpnext_account, "account_currency")
             amount = line.get("amount", 0) or 0
             line_type = (line.get("line_type") or "").strip().lower()
 
-            debit = credit = 0
-
-            # Determine base amount
             if line_type == "debit":
                 debit_val = amount
                 credit_val = 0
@@ -138,13 +132,29 @@ class JournalEntryImporter(BaseImporter):
                 debit_val = line.get("debit", 0) or 0
                 credit_val = line.get("credit", 0) or 0
 
-            # If multi-currency, calculate base currency amount
+            # ---- Multi-currency handling ----
             if is_multi_currency:
-                debit = debit_val * exchange_rate
-                credit = credit_val * exchange_rate
+                if account_currency == company_currency:
+                    # Company currency account: amount in account currency is the converted value
+                    acct_ccy_debit = debit_val * exchange_rate
+                    acct_ccy_credit = credit_val * exchange_rate
+                    base_debit = acct_ccy_debit
+                    base_credit = acct_ccy_credit
+                    row_exchange_rate = 1.0
+                else:
+                    # Foreign currency account (assumed to match transaction currency)
+                    acct_ccy_debit = debit_val
+                    acct_ccy_credit = credit_val
+                    base_debit = debit_val * exchange_rate
+                    base_credit = credit_val * exchange_rate
+                    row_exchange_rate = exchange_rate
             else:
-                debit = debit_val
-                credit = credit_val
+                # Single currency (all amounts are in company currency)
+                acct_ccy_debit = debit_val
+                acct_ccy_credit = credit_val
+                base_debit = debit_val
+                base_credit = credit_val
+                row_exchange_rate = 1.0
 
             party_type = party = None
             account_type = frappe.db.get_value("Account", erpnext_account, "account_type")
@@ -153,10 +163,11 @@ class JournalEntryImporter(BaseImporter):
 
             row_data = {
                 "account": erpnext_account,
-                "debit": debit,
-                "credit": credit,
-                "debit_in_account_currency": debit_val,
-                "credit_in_account_currency": credit_val,
+                "debit": base_debit,
+                "credit": base_credit,
+                "debit_in_account_currency": acct_ccy_debit,
+                "credit_in_account_currency": acct_ccy_credit,
+                "exchange_rate": row_exchange_rate,
                 "user_remark": line.get("memo", ""),
             }
             if party_type and party:
