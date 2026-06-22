@@ -211,7 +211,7 @@ class AccountImporter(BaseImporter):
             f"InParentGroups={name in self.parent_groups}, is_group={is_group}"
         )
 
-        return {
+        result = {
             "doctype": "Account",
             "account_name": name,
             "account_number": account_number,
@@ -221,6 +221,13 @@ class AccountImporter(BaseImporter):
             "parent_account": parent_account,
             "is_group": is_group,
         }
+
+        # Add currency if present in QB record
+        currency = record.get("currency")
+        if currency:
+            result["account_currency"] = currency
+
+        return result
 
     def post_import_validation_and_repair(self):
         """
