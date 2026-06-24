@@ -4,23 +4,41 @@ from .importers.accounts import AccountImporter
 from .importers.item_groups import ItemGroupImporter
 from .importers.items import ItemImporter
 from .importers.customers import CustomerImporter
-from .importers.suppliers import SupplierImporter
+from .importers.customer_types import CustomerTypesImporter
+from .importers.vendors import SupplierImporter
+from .importers.vendor_types import VendorTypesImporter
+from .importers.employees import EmployeeImporter
 from .importers.purchase_invoices import PurchaseInvoiceImporter
+from .importers.purchase_orders import PurchaseOrderImporter
+from .importers.payment_methods import PaymentMethodsImporter
+from .importers.price_levels import PriceLevelsImporter
+from .importers.quantity_discounts import QuantityDiscountImporter
+from .importers.terms import TermsImporter
 from .importers.bill_payments import BillPaymentImporter
 from .importers.deposits import DepositImporter
 from .importers.journal_entries import JournalEntryImporter, ChecksImporter
+from .importers.payments import PaymentsImporter
 
 PIPELINE = [
     ("accounts", AccountImporter),
     ("item_groups", ItemGroupImporter),
     ("items", ItemImporter),
+    ("price_levels", PriceLevelsImporter),
+    ("quantity_discounts", QuantityDiscountImporter),
+    ("customer_types", CustomerTypesImporter),
     ("customers", CustomerImporter),
-    ("suppliers", SupplierImporter),
+    ("vendor_types", VendorTypesImporter),
+    ("vendors", SupplierImporter),
+    ("employees", EmployeeImporter),
+    ("purchase_orders", PurchaseOrderImporter),
     ("purchase_invoices", PurchaseInvoiceImporter),
+    ("payment_methods", PaymentMethodsImporter),
+    ("terms", TermsImporter),
     ("bill_payments", BillPaymentImporter),
     ("checks", ChecksImporter),
     ("deposits", DepositImporter),
     ("journal_entries", JournalEntryImporter),
+    ("payments", PaymentsImporter),
 ]
 
 
