@@ -12,14 +12,11 @@ class PriceLevelsImporter(BaseImporter):
     def get_source_id(self, record):
         return str(record.get("name") or "")
 
-    def _map_price_list_type(self, price_level_type):
-        if not price_level_type:
-            return "Selling"
-
-        normalized = str(price_level_type).strip().lower()
+    def _map_buying_selling(self, price_level_type):
+        normalized = str(price_level_type or "").strip().lower()
         if normalized in {"buying", "buy"}:
-            return "Buying"
-        return "Selling"
+            return {"buying": 1, "selling": 0}
+        return {"buying": 0, "selling": 1}
 
     def _get_currency(self):
         company = frappe.defaults.get_global_default("company")
@@ -51,11 +48,12 @@ class PriceLevelsImporter(BaseImporter):
         if not price_list_name:
             return {"_skip": True, "_skip_reason": "MISSING_NAME"}
 
+        flags = self._map_buying_selling(record.get("type"))
         return {
             "doctype": self.target_doctype,
             "price_list_name": price_list_name,
-            "price_list_type": self._map_price_list_type(record.get("type")),
             "enabled": 1,
+            **flags,
         }
 
     def post_insert(self, doc, record):
