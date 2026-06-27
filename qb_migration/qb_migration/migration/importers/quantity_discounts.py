@@ -26,6 +26,8 @@ class QuantityDiscountImporter(BaseImporter):
             "discount_percentage": discount_pct if discount_type == "Percentage" else 0,
             "discount_amount": discount_rate if discount_type == "Price Discount" else 0,
             "apply_on": "Transaction",
+            "selling": 1,
+            "buying": 0,
             "priority": 1,
         }
 
