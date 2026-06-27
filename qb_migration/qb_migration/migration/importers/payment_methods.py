@@ -45,6 +45,14 @@ class PaymentMethodsImporter(BaseImporter):
             return self._resolve_account_by_names(["Bank Drafts", "11110 - Accounts Receivables - T"])
         return self._resolve_account_by_names(["Bank Drafts", "11110 - Accounts Receivables - T"])
 
+    def find_existing_target(self, doc_data):
+        mode_name = doc_data.get("mode_of_payment")
+        if not mode_name:
+            return None
+        if frappe.db.exists("Mode of Payment", mode_name):
+            return mode_name
+        return None
+
     def map_record(self, record):
         mode_name = record.get("name") or record.get("mode_of_payment")
         if not mode_name:
