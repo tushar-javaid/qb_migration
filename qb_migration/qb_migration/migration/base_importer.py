@@ -193,6 +193,8 @@ class BaseImporter:
                     "Payment Entry",
                     "Journal Entry",
                     "Purchase Receipt",
+                    "Purchase Order",
+                    "Sales Order",
                 ):
                     doc.submit()
 
