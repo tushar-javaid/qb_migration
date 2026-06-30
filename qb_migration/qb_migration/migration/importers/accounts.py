@@ -1,41 +1,44 @@
+import traceback
+
 import frappe
 
 from ..base_importer import BaseImporter
 
 QB_ACCOUNT_TYPE_MAP = {
-    "Bank": ("Bank", "Asset"),
-    "AccountsReceivable": ("Receivable", "Asset"),
-    "AccountsPayable": ("Payable", "Liability"),
-    "CreditCard": ("Liability", "Liability"),
-    "Income": ("Income Account", "Income"),
-    "Expense": ("Expense Account", "Expense"),
-    "CostOfGoodsSold": ("Cost of Goods Sold", "Expense"),
-    "FixedAsset": ("Fixed Asset", "Asset"),
-    "OtherCurrentAsset": ("Current Asset", "Asset"),
-    "OtherCurrentLiability": ("Liability", "Liability"),
-    "OtherAsset": ("Current Asset", "Asset"),
-    "Equity": ("Equity", "Equity"),
-    "LongTermLiability": ("Liability", "Liability"),
-    "OtherIncome": ("Income Account", "Income"),
-    "OtherExpense": ("Expense Account", "Expense"),
+    "Bank":                  ("Bank", "Asset"),
+    "AccountsReceivable":    ("Receivable", "Receivable"),        
+    "AccountsPayable":       ("Payable", "Liability"),
+    "CreditCard":            ("Current Liability", "Liability"),  
+    "Income":                ("Income Account", "Income"),
+    "Expense":               ("Expense Account", "Expense"),
+    "CostOfGoodsSold":       ("Cost of Goods Sold", "Expense"),
+    "FixedAsset":            ("Fixed Asset", "Asset"),
+    "OtherCurrentAsset":     ("Current Asset", "Asset"),
+    "OtherCurrentLiability": ("Current Liability", "Liability"),  
+    "OtherAsset":            ("Fixed Asset", "Asset"),            
+    "Equity":                ("Current Liability", "Equity"),     
+    "LongTermLiability":     ("Current Liability", "Liability"),  
+    "OtherIncome":           ("Income Account", "Income"),
+    "OtherExpense":          ("Expense Account", "Expense"),
+    "NonPosting":            ("Expense Account", "Expense"),  
 }
 
 DEFAULT_PARENT_GROUPS = {
-    "Bank": "Bank Accounts",
-    "AccountsReceivable": "Current Assets",
-    "AccountsPayable": "Current Liabilities",
-    "CreditCard": "Current Liabilities",
-    "Income": "Income",
-    "OtherIncome": "Income",
-    "Expense": "Expenses",
-    "CostOfGoodsSold": "Stock Expenses",
-    "OtherExpense": "Expenses",
-    "FixedAsset": "Fixed Assets",
-    "OtherCurrentAsset": "Current Assets",
-    "OtherAsset": "Current Assets",
+    "Bank":                  "Bank Accounts",
+    "AccountsReceivable":    "Accounts Receivable",    
+    "AccountsPayable":       "Current Liabilities",
+    "CreditCard":            "Current Liabilities",
+    "Income":                "Income",
+    "OtherIncome":           "Income",
+    "Expense":               "Expenses",
+    "CostOfGoodsSold":       "Stock Expenses",
+    "OtherExpense":          "Expenses",
+    "FixedAsset":            "Fixed Assets",
+    "OtherCurrentAsset":     "Current Assets",
+    "OtherAsset":            "Fixed Assets",           
     "OtherCurrentLiability": "Current Liabilities",
-    "Equity": "Equity",
-    "LongTermLiability": "Non-Current Liabilities",
+    "Equity":                "Equity",
+    "LongTermLiability":     "Non-Current Liabilities",
 }
 
 ROOT_TYPE_GROUPS = {
@@ -57,6 +60,86 @@ class AccountImporter(BaseImporter):
         super().__init__(*args, **kwargs)
         self._parent_groups = None
         self._records_by_name = None
+
+    def _get_company_default_currency(self, company):
+        if not company:
+            return None
+
+        try:
+            company_currency = frappe.db.get_value("Company", company, "default_currency")
+        except Exception:
+            company_currency = None
+
+        if company_currency:
+            return company_currency
+
+        return (
+            frappe.defaults.get_global_default("default_currency")
+            or frappe.defaults.get_global_default("currency")
+        )
+
+    def _get_account_currency(self, record, company):
+        currency = (record.get("currency") or "").strip()
+        if currency:
+            return currency
+        return self._get_company_default_currency(company)
+
+    def _apply_account_fields(self, doc, doc_data):
+        if not doc:
+            return None
+
+        fields_to_set = {}
+        if "account_name" in doc_data:
+            fields_to_set["account_name"] = doc_data.get("account_name")
+        if "account_number" in doc_data:
+            fields_to_set["account_number"] = doc_data.get("account_number")
+        if "account_type" in doc_data:
+            fields_to_set["account_type"] = doc_data.get("account_type")
+        if "root_type" in doc_data:
+            fields_to_set["root_type"] = doc_data.get("root_type")
+        if "parent_account" in doc_data:
+            fields_to_set["parent_account"] = doc_data.get("parent_account")
+        if "is_group" in doc_data:
+            fields_to_set["is_group"] = doc_data.get("is_group")
+        if "company" in doc_data:
+            fields_to_set["company"] = doc_data.get("company")
+        if "account_currency" in doc_data:
+            fields_to_set["account_currency"] = doc_data.get("account_currency")
+
+        for field_name, value in fields_to_set.items():
+            setattr(doc, field_name, value)
+
+        return doc
+
+    def _upsert_account(self, doc_data, existing_target=None):
+        if existing_target:
+            doc = frappe.get_doc("Account", existing_target)
+
+            incoming_is_group = doc_data.get("is_group")
+            if doc.is_group and incoming_is_group == 0:
+                # Preserve existing group status and prevent invalid downgrade.
+                print(
+                    f"PRESERVE GROUP: keeping existing group {doc.name} as group while import tried to set ledger"
+                )
+                doc_data = dict(doc_data)
+                doc_data["is_group"] = 1
+                doc_data["account_type"] = None
+
+            if not doc.is_group and incoming_is_group == 1:
+                doc_data = dict(doc_data)
+                doc_data["account_type"] = None
+
+            self._apply_account_fields(doc, doc_data)
+            doc.flags.ignore_permissions = True
+            doc.save(ignore_permissions=True)
+            return doc
+
+        doc_data = dict(doc_data)
+        doc_data.pop("_qb_parent", None)
+        doc = frappe.get_doc(doc_data)
+        doc.flags.ignore_permissions = True
+        doc.insert(ignore_permissions=True)
+        return doc
 
     @property
     def parent_groups(self):
@@ -83,10 +166,64 @@ class AccountImporter(BaseImporter):
         return self._records_by_name
 
     def run(self, dry_run=False):
-        result = super().run(dry_run)
+        records = self.load_data()
+        total = len(records)
+        success = failed = skipped = 0
+
+        print(f"\n[{self.source_type}] Starting: {total} records")
+
+        for i, record in enumerate(records):
+            source_id = self.get_source_id(record)
+            if not source_id:
+                failed += 1
+                print(f"  FAIL: missing source id for record {i + 1}")
+                continue
+
+            if self.is_imported(source_id):
+                skipped += 1
+                continue
+
+            try:
+                doc_data = self.map_record(record)
+                if doc_data is None:
+                    skipped += 1
+                    continue
+
+                if isinstance(doc_data, dict) and doc_data.get("_skip"):
+                    skipped += 1
+                    reason = doc_data.get("_skip_reason", "SKIPPED")
+                    ref_no = doc_data.get("ref_no") or doc_data.get("reference_no") or record.get("ref_no") or record.get("ref_number")
+                    print(f"  SKIP [{source_id}] ref_no={ref_no or 'N/A'} reason={reason}")
+                    self.log_skip(source_id, reason, ref_no)
+                    continue
+
+                if dry_run:
+                    print(f"  DRY RUN: {source_id} → {doc_data.get('name', doc_data.get('item_code', '?'))}")
+                    success += 1
+                    continue
+
+                existing_target = self.find_existing_target(doc_data)
+                doc = self._upsert_account(doc_data, existing_target)
+                self.log_success(source_id, doc.name, getattr(doc, "doctype", self.target_doctype))
+                success += 1
+                frappe.db.commit()
+
+            except Exception as exc:
+                frappe.db.rollback()
+                self.log_failure(source_id, traceback.format_exc())
+                failed += 1
+                print(f"  FAIL [{source_id}]: {exc}")
+
+            if (i + 1) % self.batch_size == 0:
+                frappe.db.commit()
+                print(f"  Progress: {i + 1}/{total}")
+
         if not dry_run:
             self.post_import_validation_and_repair()
-        return result
+
+        frappe.db.commit()
+        print(f"[{self.source_type}] Done — Success: {success}, Failed: {failed}, Skipped: {skipped}")
+        return {"success": success, "failed": failed, "skipped": skipped}
 
     def _find_account(self, account_name, company, account_number=None, parent_name=None):
         if not account_name:
@@ -121,6 +258,16 @@ class AccountImporter(BaseImporter):
 
     def _default_parent_name(self, qb_type, root_type):
         return DEFAULT_PARENT_GROUPS.get(qb_type) or ROOT_TYPE_GROUPS.get(root_type)
+
+    def _avoid_self_parent(self, account_name, company, parent_account):
+        if not parent_account:
+            return None
+
+        existing_target = self._find_account(account_name, company)
+        if existing_target and existing_target == parent_account:
+            return None
+
+        return parent_account
 
     def _get_qb_type_for_account_name(self, account_name, fallback_qb_type):
         record = self.records_by_name.get((account_name or "").strip())
@@ -162,13 +309,14 @@ class AccountImporter(BaseImporter):
         return doc.name
 
     def find_existing_target(self, doc_data):
-        return self._find_account(doc_data.get("account_name"), doc_data.get("company"), doc_data.get("account_number"))
+        return self._find_account(
+            doc_data.get("account_name"),
+            doc_data.get("company"),
+            doc_data.get("account_number"),
+            parent_name=doc_data.get("_qb_parent"),
+        )
 
     def map_record(self, record):
-        if record.get("account_type") == "NonPosting":
-            print(f"SKIP NonPosting account: {record.get('name')}")
-            return {"_skip": True, "_skip_reason": "NonPosting"}
-
         company = frappe.defaults.get_global_default("company")
         qb_type = record.get("account_type", "Expense")
         acct_type, root_type = QB_ACCOUNT_TYPE_MAP.get(
@@ -202,7 +350,11 @@ class AccountImporter(BaseImporter):
             default_parent_name = self._default_parent_name(qb_type, root_type)
             parent_account = self._find_account(default_parent_name, company)
 
-        is_group = 1 if name in self.parent_groups else 0
+        parent_account = self._avoid_self_parent(name, company, parent_account)
+
+        # NonPosting accounts and accounts that have children should be group accounts
+        is_non_posting = qb_type == "NonPosting"
+        is_group = 1 if (is_non_posting or name in self.parent_groups) else 0
         account_type = None if is_group else acct_type
 
         # Log for debug
@@ -220,10 +372,10 @@ class AccountImporter(BaseImporter):
             "company": company,
             "parent_account": parent_account,
             "is_group": is_group,
+            "_qb_parent": qb_parent,
         }
 
-        # Add currency if present in QB record
-        currency = record.get("currency")
+        currency = self._get_account_currency(record, company)
         if currency:
             result["account_currency"] = currency
 
@@ -241,26 +393,41 @@ class AccountImporter(BaseImporter):
             qb_parent = record.get("parent", "").strip()
             qb_number = record.get("account_number")
             qb_type = record.get("account_type", "Expense")
-            if qb_type == "NonPosting": continue
 
             _, root_type = QB_ACCOUNT_TYPE_MAP.get(qb_type, ("Expense Account", "Expense"))
 
             if not qb_name: continue
 
-            child_account = self._find_account(qb_name, company, account_number=qb_number)
+            child_account = self._find_account(
+                qb_name,
+                company,
+                account_number=qb_number,
+                parent_name=qb_parent,
+            )
             if not child_account:
                 print(f"  ERROR: Account {qb_name} not found in ERPNext during validation.")
                 continue
 
             child_doc = frappe.get_doc("Account", child_account)
+            changed = False
 
             # 1. Repair is_group: Only upgrade to 1, never downgrade
-            if qb_name in self.parent_groups and child_doc.is_group == 0:
+            is_non_posting = qb_type == "NonPosting"
+            should_be_group = is_non_posting or qb_name in self.parent_groups
+            if should_be_group and child_doc.is_group == 0:
                 print(f"CORRECTION: Converting {qb_name} to group account; clearing account_type={child_doc.account_type}")
                 child_doc.account_type = None
                 child_doc.is_group = 1
-                child_doc.flags.ignore_permissions = True
-                child_doc.save(ignore_permissions=True)
+                changed = True
+
+            if qb_number is not None and child_doc.account_number != qb_number:
+                child_doc.account_number = qb_number
+                changed = True
+
+            expected_currency = self._get_account_currency(record, company)
+            if expected_currency and child_doc.account_currency != expected_currency:
+                child_doc.account_currency = expected_currency
+                changed = True
 
             # 2. Repair parent
             if qb_parent:
@@ -272,14 +439,14 @@ class AccountImporter(BaseImporter):
                     expected_parent = self._ensure_account_group(qb_parent, parent_qb_type, parent_root_type, company)
                     print(f"  RESOLVED missing parent {qb_parent} for {qb_name}: {expected_parent}")
 
+                expected_parent = self._avoid_self_parent(qb_name, company, expected_parent)
                 if child_doc.parent_account != expected_parent:
                     print(
                         f"  CORRECTION: Corrected parent for {qb_name} "
                         f"from {child_doc.parent_account} to {expected_parent}"
                     )
                     child_doc.parent_account = expected_parent
-                    child_doc.flags.ignore_permissions = True
-                    child_doc.save(ignore_permissions=True)
+                    changed = True
             else:
                 # No QB parent, only repair if missing
                 if not child_doc.parent_account:
@@ -287,8 +454,11 @@ class AccountImporter(BaseImporter):
                     if expected_parent:
                         print(f"  CORRECTION: Setting default parent for {qb_name} to {expected_parent}")
                         child_doc.parent_account = expected_parent
-                        child_doc.flags.ignore_permissions = True
-                        child_doc.save(ignore_permissions=True)
+                        changed = True
                 else:
                     print(f"  INFO: Leaving top-level account {qb_name} parent unchanged: {child_doc.parent_account}")
+
+            if changed:
+                child_doc.flags.ignore_permissions = True
+                child_doc.save(ignore_permissions=True)
         frappe.db.commit()
