@@ -3,7 +3,7 @@ import frappe
 from .importers.accounts import AccountImporter
 from .importers.payment_methods import PaymentMethodsImporter
 from .importers.terms import TermsImporter
-from .importers.item_groups import ItemGroupImporter
+# from .importers.item_groups import ItemGroupImporter
 from .importers.price_levels import PriceLevelsImporter
 from .importers.customer_types import CustomerTypesImporter
 from .importers.vendor_types import VendorTypesImporter
@@ -23,17 +23,19 @@ from .importers.payments import PaymentsImporter
 from .importers.sales_tax_items import SalesTaxItemsImporter
 from .importers.deposits import DepositImporter
 from .importers.cc_charges import CCChargesImporter
-from .importers.journal_entries import JournalEntryImporter, ChecksImporter
+from .importers.journal_entries import JournalEntryImporter
+from .importers.checks import ChecksImporter
 from .importers.vendor_credits import VendorCreditImporter
 from .importers.item_receipts import ItemReceiptImporter
 from .importers.quantity_discounts import QuantityDiscountImporter
 from .importers.other_names import OtherNamesImporter
+from .fiscal_years import ensure_fiscal_years
 
 PIPELINE = [
     ("accounts", AccountImporter),
     ("payment_methods", PaymentMethodsImporter),
     ("terms", TermsImporter),
-    ("item_groups", ItemGroupImporter),
+    # ("item_groups", ItemGroupImporter),
     ("price_levels", PriceLevelsImporter),
     ("customer_types", CustomerTypesImporter),
     ("vendor_types", VendorTypesImporter),
@@ -70,6 +72,8 @@ def run_migration(stages=None, dry_run=False):
     """
     frappe.flags.in_migrate = True
     frappe.set_user("Administrator")
+    print("\n=== Fiscal Year Preparation ===")
+    ensure_fiscal_years()
     results = {}
 
     for stage_name, ImporterClass in PIPELINE:
