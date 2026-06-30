@@ -37,13 +37,7 @@ class PaymentMethodsImporter(BaseImporter):
         return None
 
     def _resolve_default_account(self, payment_type):
-        mode_type = self._map_payment_type(payment_type)
-        if mode_type == "Cash":
-            account = self._resolve_account_by_names(["Cash"])
-            if account:
-                return account
-            return self._resolve_account_by_names(["Bank Drafts", "11110 - Accounts Receivables - T"])
-        return self._resolve_account_by_names(["Bank Drafts", "11110 - Accounts Receivables - T"])
+        return None
 
     def find_existing_target(self, doc_data):
         mode_name = doc_data.get("mode_of_payment")
