@@ -252,6 +252,7 @@ class SalesReceiptImporter(SalesInvoiceImporter):
 
                 if self.target_doctype in (
                     "Purchase Invoice",
+                    "Sales Invoice",
                     "Payment Entry",
                     "Journal Entry",
                 ):
@@ -339,7 +340,8 @@ class SalesReceiptImporter(SalesInvoiceImporter):
             "customer_reference": record.get("ref_no") or record.get("txn_id") or "",
             "remarks": record.get("memo") or f"Imported from QuickBooks txn_id {record.get('txn_id')}",
             "items": items,
-            "is_pos": 1 if record.get("payment_method") else 0,
+            "set_posting_time": 1,
+            "is_pos": 0,
             "total": abs(float(record.get("subtotal") or 0)),
             "total_taxes_and_charges": abs(float(record.get("sales_tax_total") or 0)),
             "grand_total": abs(float(record.get("total_amt") or 0)),
@@ -348,20 +350,9 @@ class SalesReceiptImporter(SalesInvoiceImporter):
             "base_grand_total": abs(float(record.get("total_amt") or 0)),
         }
 
-        if record.get("payment_method"):
-            mode_of_payment = self._resolve_mode_of_payment(record.get("payment_method"))
-            doc["mode_of_payment"] = mode_of_payment
-
         account = self._resolve_cash_bank_account(record.get("deposit_to_acct"))
         if account:
             doc["cash_bank_account"] = account
-
-        if record.get("payment_method") and account:
-            doc["payments"] = [{
-                "mode_of_payment": doc.get("mode_of_payment") or self._resolve_mode_of_payment(record.get("payment_method")),
-                "amount": abs(float(record.get("total_amt") or 0)),
-                "account": account,
-            }]
 
         if record.get("tax_item"):
             template = self.resolve_taxes_template(record.get("tax_item"))
