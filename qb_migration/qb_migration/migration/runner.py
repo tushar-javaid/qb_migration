@@ -22,6 +22,7 @@ from .importers.bill_payments import BillPaymentImporter
 from .importers.payments import PaymentsImporter
 from .importers.sales_tax_items import SalesTaxItemsImporter
 from .importers.deposits import DepositImporter
+from .importers.transfers import TransfersImporter
 from .importers.cc_charges import CCChargesImporter
 from .importers.journal_entries import JournalEntryImporter
 from .importers.checks import ChecksImporter
@@ -54,6 +55,7 @@ PIPELINE = [
     ("payments", PaymentsImporter),
     ("sales_tax_items", SalesTaxItemsImporter),
     ("deposits", DepositImporter),
+    ("transfers", TransfersImporter),
     ("checks", ChecksImporter),
     ("cc_charges", CCChargesImporter),
     ("journal_entries", JournalEntryImporter),
